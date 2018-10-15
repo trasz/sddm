@@ -26,6 +26,9 @@
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <errno.h>
+#ifdef __FreeBSD__
+#include <login_cap.h>
+#endif
 #include <string.h>
 #include <unistd.h>
 #include <pwd.h>
@@ -46,10 +49,8 @@ namespace SDDM {
     bool UserSession::start() {
         QProcessEnvironment env = qobject_cast<HelperApp*>(parent())->session()->processEnvironment();
 
-        if (env.value(QStringLiteral("XDG_SESSION_CLASS")) == QLatin1String("greeter")) {
-            QProcess::start(m_path);
-        } else if (env.value(QStringLiteral("XDG_SESSION_TYPE")) == QLatin1String("x11")) {
-            const QString cmd = QStringLiteral("%1 \"%2\"").arg(mainConfig.X11.SessionCommand.get()).arg(m_path);
+        if (env.value(QStringLiteral("XDG_SESSION_TYPE")) == QLatin1String("x11")) {
+            const QString cmd = QStringLiteral("%1 %2").arg(mainConfig.X11.SessionCommand.get()).arg(m_path);
             qInfo() << "Starting:" << cmd;
             QProcess::start(cmd);
         } else if (env.value(QStringLiteral("XDG_SESSION_TYPE")) == QLatin1String("wayland")) {
@@ -147,6 +148,12 @@ namespace SDDM {
             free(buffer);
             exit(Auth::HELPER_OTHER_ERROR);
         }
+#ifdef __FreeBSD__
+        if (setusercontext(NULL, pw, pw->pw_uid, LOGIN_SETALL) != 0) {
+            qCritical() << "setusercontext(..., LOGIN_SETALL) failed for user: " << username;
+            exit(Auth::HELPER_OTHER_ERROR);
+        }
+#else /* !__FreeBSD */
         if (setgid(pw.pw_gid) != 0) {
             qCritical() << "setgid(" << pw.pw_gid << ") failed for user: " << username;
             free(buffer);
@@ -221,6 +228,7 @@ namespace SDDM {
             free(buffer);
             exit(Auth::HELPER_OTHER_ERROR);
         }
+#endif /* !__FreeBSD__ */
         if (chdir(pw.pw_dir) != 0) {
             qCritical() << "chdir(" << pw.pw_dir << ") failed for user: " << username;
             qCritical() << "verify directory exist and has sufficient permissions";
